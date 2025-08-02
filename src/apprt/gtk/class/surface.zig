@@ -2666,6 +2666,7 @@ pub const Surface = extern struct {
         // Setup our input method. We do this here because this will
         // create a strong reference back to ourself and we want to be
         // able to release that in unrealize.
+        const priv = self.private();
         priv.im_context.as(gtk.IMContext).setClientWidget(self.as(gtk.Widget));
     }
 
@@ -2767,8 +2768,6 @@ pub const Surface = extern struct {
 
             // Setup our resize overlay if configured
             self.resizeOverlaySchedule();
-
-            return;
         }
 
         // If we don't have a surface, then we initialize it.
@@ -2878,6 +2877,82 @@ pub const Surface = extern struct {
             };
         });
         priv.resize_overlay.schedule();
+    }
+
+    const RealizeError = Allocator.Error || error{
+        GLAreaError,
+        RendererError,
+        SurfaceError,
+    };
+
+    fn realizeSurface(self: *Self) RealizeError!void {
+        const priv = self.private();
+        const gl_area = priv.gl_area;
+
+        // We need to make the context current so we can call GL functions.
+        // This is required for all surface operations.
+        gl_area.makeCurrent();
+        if (gl_area.getError()) |err| {
+            log.warn("failed to make GL context current: {s}", .{err.f_message orelse "(no message)"});
+            log.warn("this error is usually due to a driver or gtk bug", .{});
+            log.warn("this is a common cause of this issue: https://gitlab.gnome.org/GNOME/gtk/-/issues/4950", .{});
+            return error.GLAreaError;
+        }
+
+        // If we already have an initialized surface then we just notify.
+        if (priv.core_surface) |v| {
+            v.renderer.displayRealized() catch |err| {
+                log.warn("core displayRealized failed err={}", .{err});
+                return error.RendererError;
+            };
+            self.redraw();
+            return;
+        }
+
+        const app = Application.default();
+        const alloc = app.allocator();
+
+        // Initialize our cgroup if we can.
+        self.initCgroup();
+        errdefer self.clearCgroup();
+
+        // Make our pointer to store our surface
+        const surface = try alloc.create(CoreSurface);
+        errdefer alloc.destroy(surface);
+
+        // Add ourselves to the list of surfaces on the app.
+        try app.core().addSurface(self.rt());
+        errdefer app.core().deleteSurface(self.rt());
+
+        // Initialize our surface configuration.
+        // GTK-NG surfaces default to window context since they're typically new instances
+        var config = try apprt.surface.newConfig(
+            app.core(),
+            priv.config.?.get(),
+            .window,
+            null,
+        );
+        defer config.deinit();
+
+        // Properties that can impact surface init
+        if (priv.font_size_request) |size| config.@"font-size" = size.points;
+        if (priv.pwd) |pwd| config.@"working-directory" = pwd;
+
+        // Initialize the surface
+        surface.init(
+            alloc,
+            &config,
+            app.core(),
+            app.rt(),
+            &priv.rt_surface,
+        ) catch |err| {
+            log.warn("failed to initialize surface err={}", .{err});
+            return error.SurfaceError;
+        };
+        errdefer surface.deinit();
+
+        // Store it!
+        priv.core_surface = surface;
     }
 
     fn ecUrlMouseEnter(
