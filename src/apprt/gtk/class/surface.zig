@@ -2666,7 +2666,6 @@ pub const Surface = extern struct {
         // Setup our input method. We do this here because this will
         // create a strong reference back to ourself and we want to be
         // able to release that in unrealize.
-        const priv = self.private();
         priv.im_context.as(gtk.IMContext).setClientWidget(self.as(gtk.Widget));
     }
 
@@ -2768,12 +2767,12 @@ pub const Surface = extern struct {
 
             // Setup our resize overlay if configured
             self.resizeOverlaySchedule();
+        } else {
+            // If we don't have a surface, then we initialize it.
+            self.initSurface() catch |err| {
+                log.warn("surface failed to initialize err={}", .{err});
+            };
         }
-
-        // If we don't have a surface, then we initialize it.
-        self.initSurface() catch |err| {
-            log.warn("surface failed to initialize err={}", .{err});
-        };
     }
 
     const InitError = Allocator.Error || error{
@@ -2815,6 +2814,8 @@ pub const Surface = extern struct {
         var config = try apprt.surface.newConfig(
             app.core(),
             priv.config.?.get(),
+            .window,
+            null,
         );
         defer config.deinit();
 
