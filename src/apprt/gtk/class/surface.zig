@@ -651,6 +651,7 @@ pub const Surface = extern struct {
     pub fn setParent(
         self: *Self,
         parent: *CoreSurface,
+        context: apprt.surface.NewSurfaceContext,
     ) void {
         const priv = self.private();
 
@@ -660,6 +661,9 @@ pub const Surface = extern struct {
             log.warn("setParent called after surface is already realized", .{});
             return;
         }
+
+        // Store the context so initSurface can use it
+        priv.context = context;
 
         // Setup our font size
         const font_size_ptr = glib.ext.create(font.face.DesiredSize);
