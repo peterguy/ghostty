@@ -3072,7 +3072,11 @@ pub const Surface = extern struct {
         errdefer app.core().deleteSurface(self.rt());
 
         // Initialize our surface configuration.
-        var config = try apprt.surface.newConfig(app.core(), priv.config.?.get(), priv.context);
+        var config = try apprt.surface.newConfig(
+            app.core(),
+            priv.config.?.get(),
+            priv.context,
+        );
         defer config.deinit();
 
         // Properties that can impact surface init
